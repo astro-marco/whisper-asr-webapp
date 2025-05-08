@@ -18,10 +18,11 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && pip install poetry
 
 COPY backend/pyproject.toml backend/poetry.lock ./
+RUN poetry update --no-interaction torch
 
 RUN --mount=type=cache,target=/root/.cache/pypoetry/cache \
     --mount=type=cache,target=/root/.cache/pypoetry/artifacts \
-    poetry install --no-root --no-directory --no-dev
+    poetry install --no-root --no-directory
 
 COPY --from=build-frontend /app/dist /static
 COPY backend/ ./
