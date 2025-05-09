@@ -52,9 +52,22 @@
 
 <div class="grid gap-2 grid-cols-[auto,1fr]">
   {#each result.segments as segment}
-    <span class="font-medium text-gray-500 dark:text-gray-400 select-none"
-      >{formatTimestamp(segment.start)}</span
-    >
-    <span>{segment.text}</span>
+    <span class="font-medium text-gray-500 dark:text-gray-400 select-none align-top">
+      {formatTimestamp(segment.start)}
+    </span>
+    <span>
+      {#if segment.speaker}
+        <span class="speaker-label font-bold text-sm dark:text-gray-300">
+          {segment.speaker}:
+        </span>
+      {/if}
+      {segment.text}
+    </span>
   {/each}
 </div>
+
+<style>
+  .speaker-label {
+    margin: 0 0.5rem;
+  }
+</style>

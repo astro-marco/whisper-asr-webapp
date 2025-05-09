@@ -18,6 +18,8 @@
   let language: string = "";
   let initialPrompt: string;
   let wordTimestamps: boolean = false;
+  let diarize: boolean = false;
+  let numSpeakers: number | null = null;
 
   let models: Promise<any>;
 
@@ -42,6 +44,10 @@
     formData.set("language", language);
     formData.set("initial_prompt", initialPrompt);
     formData.set("word_timestamps", wordTimestamps.toString());
+    formData.set("diarize", diarize.toString());
+    if (diarize && numSpeakers && numSpeakers > 0) {
+      formData.set("num_speakers", numSpeakers.toString());
+    }
 
     result = undefined;
     loading = true;
@@ -56,6 +62,7 @@
       .then((res) => res.json())
       .then((json) => {
         result = json;
+        console.log("Received result from backend:", JSON.stringify(result, null, 2)); // Add this line to inspect
         loading = false;
         end = Date.now();
         lastInputFileName = fileName;
@@ -184,6 +191,47 @@
             </div>
           </div>
         </div>
+
+        <div class="flex flex-col gap-2 w-full">
+          <label for="diarize" class="text-xs uppercase font-bold">
+            Speaker Diarization
+          </label>
+          <div class="flex items-center gap-2 mt-1">
+            <input
+              type="checkbox"
+              id="diarize"
+              bind:checked={diarize}
+              class="h-4 w-4"
+            />
+            <label for="diarize" class="text-sm">Enable speaker diarization</label>
+          </div>
+        </div>
+
+        {#if diarize}
+        <div class="flex flex-col gap-2 w-full">
+          <label for="numSpeakers" class="text-xs uppercase font-bold">
+            Number of Speakers
+            <Tooltip
+              tip="Optional. Specify the exact number of speakers. Leave blank or set to 0 for auto-detection."
+            >
+              <CircleQuestion
+                class="fill-gray-600 dark:fill-gray-400 w-4 h-4 ml-1 -mb-0.5"
+              />
+            </Tooltip>
+          </label>
+          <input
+            type="number"
+            id="numSpeakers"
+            bind:value={numSpeakers}
+            min="0"
+            placeholder="Auto-detect"
+            class="dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400 p-2 border rounded-md"
+            on:input={() => {
+              if (numSpeakers < 0) numSpeakers = 0;
+            }}
+          />
+        </div>
+        {/if}
       </div>
 
       <div class="flex flex-col gap-2 w-full">

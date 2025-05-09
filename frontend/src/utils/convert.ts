@@ -34,42 +34,48 @@ export function getContent(
 ) {
   switch (format) {
     case "txt": {
-      return result.segments.map((segment) => segment.text.trim()).join("\n");
+      return result.segments
+        .map((segment) =>
+          (segment.speaker ? segment.speaker + ": " : "") +
+          segment.text.trim(),
+        )
+        .join("\n");
     }
     case "vtt": {
       return (
         "WEBVTT\n\n" +
         result.segments
           .map((segment) => {
+            const speakerPrefix = segment.speaker ? segment.speaker + ": " : "";
             return `${formatTimestamp(segment.start)} --> ${formatTimestamp(
               segment.end,
-            )}\n${segment.text.trim().replace("-->", "->")}\n`;
+            )}\n${speakerPrefix}${segment.text.trim().replace("-->", "->")}\n`;
           })
           .join("\n")
       );
     }
     case "srt": {
       return result.segments
-        .map(
-          (segment, i) =>
-            `${i + 1}\n${formatTimestamp(
-              segment.start,
-              true,
-              ",",
-            )} --> ${formatTimestamp(segment.end, true, ",")}\n${segment.text
-              .trim()
-              .replace("-->", "->")}\n`,
-        )
+        .map((segment, i) => {
+          const speakerPrefix = segment.speaker ? segment.speaker + ": " : "";
+          return `${i + 1}\n${formatTimestamp(
+            segment.start,
+            true,
+            ",",
+          )} --> ${formatTimestamp(segment.end, true, ",")}\n${speakerPrefix}${segment.text
+            .trim()
+            .replace("-->", "->")}\n`;
+        })
         .join("\n");
     }
     case "tsv": {
       return (
-        "start\tend\ttext\n" +
+        "start\tend\tspeaker\ttext\n" +
         result.segments
           .map((segment) => {
             return `${Math.round(1000 * segment.start)}\t${Math.round(
               1000 * segment.end,
-            )}\t${segment.text.trim().replace("\t", " ")}`;
+            )}\t${segment.speaker || ""}\t${segment.text.trim().replace("\t", " ")}`;
           })
           .join("\n")
       );
