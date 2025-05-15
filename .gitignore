@@ -1,18 +1,40 @@
-# Ignore Python virtual environment
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
 .venv/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.eggs/
+*.egg-info/
+*.egg
+*.so
+*.log
 
-# Ignore Node.js dependencies
+# Node
 frontend/node_modules/
 
-# Ignore built static assets
+# Built static assets
 static/
 
-# Ignore Python cache
-backend/__pycache__/
-*.pyc
-
-# Ignore OS-specific files
+# OS-specific
 .DS_Store
 Thumbs.db
+Desktop.ini
 
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
 .env
