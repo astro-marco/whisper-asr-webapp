@@ -1,5 +1,9 @@
 import warnings
-warnings.filterwarnings("ignore", message="resource_tracker: There appear to be .* leaked semaphore objects")
+warnings.filterwarnings(
+    "ignore",
+    r"resource_tracker:.* leaked semaphore objects.*",
+    category=UserWarning
+)
 
 from dotenv import load_dotenv
 load_dotenv()  # load variables from .env file
