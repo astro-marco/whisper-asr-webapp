@@ -32,6 +32,8 @@
 
   let lastInputFileName: string;
 
+  let debugJSON: string = "";
+
   async function submit() {
     if (!files) {
       toast.error("Please upload a file.");
@@ -62,6 +64,7 @@
       .then((res) => res.json())
       .then((json) => {
         result = json;
+        debugJSON = JSON.stringify(json, null, 2);
         console.log("Received result from backend:", JSON.stringify(result, null, 2)); // Add this line to inspect
         loading = false;
         end = Date.now();
@@ -267,6 +270,13 @@
         />
       {/if}
     </div>
+
+    {#if debugJSON}
+      <details class="mt-4 p-2 bg-gray-100 dark:bg-gray-800 rounded">
+        <summary class="cursor-pointer font-medium">Mostra Debug JSON</summary>
+        <pre class="whitespace-pre-wrap overflow-auto max-h-64 text-xs">{debugJSON}</pre>
+      </details>
+    {/if}
   </main>
 </div>
 

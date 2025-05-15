@@ -34,10 +34,25 @@ export function getContent(
 ) {
   switch (format) {
     case "txt": {
-      return result.segments
-        .map((segment) =>
-          (segment.speaker ? segment.speaker + ": " : "") +
-          segment.text.trim(),
+      // group consecutive segments by speaker
+      const groups: { speaker?: string; lines: string[] }[] = [];
+      let curr: { speaker?: string; lines: string[] } | null = null;
+
+      for (const seg of result.segments) {
+        const txt = seg.text.trim();
+        if (!curr || curr.speaker !== seg.speaker) {
+          if (curr) groups.push(curr);
+          curr = { speaker: seg.speaker, lines: [txt] };
+        } else {
+          curr.lines.push(txt);
+        }
+      }
+      if (curr) groups.push(curr);
+
+      return groups
+        .map(
+          (g) =>
+            (g.speaker ? g.speaker + ": " : "") + g.lines.join(" ")
         )
         .join("\n");
     }
