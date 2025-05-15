@@ -6,6 +6,7 @@
 
   export let result: WhisperResult;
   export let inputFileName: string;
+  export let duration: number;
 
   function formatTimestamp(n: number) {
     const totalSeconds = Math.round(n);
