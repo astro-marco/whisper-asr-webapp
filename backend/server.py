@@ -1,8 +1,11 @@
+import warnings
+warnings.filterwarnings("ignore", message="resource_tracker: There appear to be .* leaked semaphore objects")
+
 from dotenv import load_dotenv
 load_dotenv()  # load variables from .env file
 import os
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, List, Dict, Any
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +20,6 @@ import requests
 from datetime import timedelta
 
 app = FastAPI()
-
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
@@ -66,6 +68,110 @@ def models():
     return models
 
 
+def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested: bool) -> List[Dict[str, Any]]:
+    """
+    Re-segments a transcription result based on word-level speaker assignments.
+    Ensures each segment in the output corresponds to a single speaker.
+    Handles words with no speaker assignment by attempting to associate them with the current speaker segment.
+    Filters out very short speakerless segments.
+    """
+    resegmented_list = []
+    original_segments = result.get("segments", [])
+    new_segment_id = 0
+
+    for segment in original_segments:
+        if "words" not in segment or not segment["words"]:
+            current_seg_copy = segment.copy()
+            if "id" not in current_seg_copy:
+                current_seg_copy["id"] = new_segment_id
+                new_segment_id += 1
+            current_seg_copy.setdefault("seek", segment.get("seek", 0))
+            current_seg_copy.setdefault("tokens", segment.get("tokens", []))
+            current_seg_copy.setdefault("temperature", segment.get("temperature", 0.0))
+            current_seg_copy.setdefault("avg_logprob", segment.get("avg_logprob", 0.0))
+            current_seg_copy.setdefault("compression_ratio", segment.get("compression_ratio", 0.0))
+            current_seg_copy.setdefault("no_speech_prob", segment.get("no_speech_prob", 0.0))
+            
+            speaker_val = segment.get("speaker")
+            if speaker_val == "": # Normalize speaker if it's an empty string
+                speaker_val = None
+            current_seg_copy.setdefault("speaker", speaker_val)
+            
+            resegmented_list.append(current_seg_copy)
+            continue
+
+        current_sub_segment_word_details = []
+        speaker_for_current_sub_segment = None
+
+        for word_data in segment["words"]:
+            original_speaker_of_word = word_data.get("speaker")
+            if original_speaker_of_word == "": # Normalize empty string speaker from word_data
+                original_speaker_of_word = None
+            
+            effective_speaker_for_this_word = original_speaker_of_word
+            if effective_speaker_for_this_word is None:
+                if current_sub_segment_word_details:
+                    effective_speaker_for_this_word = speaker_for_current_sub_segment
+                
+            word_detail_to_add = {
+                "word": word_data.get("word", ""),
+                "start": word_data.get("start"),
+                "end": word_data.get("end"),
+                "speaker": effective_speaker_for_this_word 
+            }
+
+            if not current_sub_segment_word_details:
+                current_sub_segment_word_details.append(word_detail_to_add)
+                speaker_for_current_sub_segment = effective_speaker_for_this_word
+            elif effective_speaker_for_this_word == speaker_for_current_sub_segment:
+                current_sub_segment_word_details.append(word_detail_to_add)
+            else: 
+                if current_sub_segment_word_details:
+                    seg_text = "".join(w["word"] for w in current_sub_segment_word_details).strip()
+                    if seg_text:
+                        is_speakerless = speaker_for_current_sub_segment is None
+                        # Filter out very short (<=2 chars) speakerless segments
+                        if not (is_speakerless and len(seg_text) <= 2):
+                            new_seg_data = {
+                                "id": new_segment_id, "seek": 0,
+                                "start": current_sub_segment_word_details[0]["start"],
+                                "end": current_sub_segment_word_details[-1]["end"],
+                                "text": seg_text,
+                                "speaker": speaker_for_current_sub_segment,
+                                "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
+                                "compression_ratio": 0.0, "no_speech_prob": 0.0,
+                            }
+                            if word_timestamps_requested:
+                                new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"]} for w in current_sub_segment_word_details]
+                            resegmented_list.append(new_seg_data)
+                            new_segment_id += 1
+                
+                current_sub_segment_word_details = [word_detail_to_add]
+                speaker_for_current_sub_segment = effective_speaker_for_this_word
+        
+        if current_sub_segment_word_details: 
+            seg_text = "".join(w["word"] for w in current_sub_segment_word_details).strip()
+            if seg_text:
+                is_speakerless = speaker_for_current_sub_segment is None
+                # Filter out very short (<=2 chars) speakerless segments
+                if not (is_speakerless and len(seg_text) <= 2):
+                    new_seg_data = {
+                        "id": new_segment_id, "seek": 0,
+                        "start": current_sub_segment_word_details[0]["start"],
+                        "end": current_sub_segment_word_details[-1]["end"],
+                        "text": seg_text,
+                        "speaker": speaker_for_current_sub_segment,
+                        "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
+                        "compression_ratio": 0.0, "no_speech_prob": 0.0,
+                    }
+                    if word_timestamps_requested:
+                        new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"]} for w in current_sub_segment_word_details]
+                    resegmented_list.append(new_seg_data)
+                    new_segment_id += 1
+            
+    return resegmented_list
+
+
 @app.post("/transcribe")
 def transcribe(
     file: Annotated[UploadFile, File()],
@@ -80,52 +186,53 @@ def transcribe(
     bytes = file.file.read()
     np_array = convert_audio(bytes)
     whisper_instance = whisper.load_model(model)
-    # sanitize language: treat empty or placeholder "string" as None
     lang = None if not language or language.lower() == "string" else language
-    # call Whisper with sanitized language parameter
+
+    effective_word_timestamps_for_process = word_timestamps
+    if diarize:
+        effective_word_timestamps_for_process = True
+
     result = whisper_instance.transcribe(
         audio=np_array,
         verbose=True,
         task=task,
         initial_prompt=initial_prompt,
-        word_timestamps=word_timestamps,
+        word_timestamps=effective_word_timestamps_for_process,
         language=lang,
     )
-    # if diarization requested, run WhisperX pipeline
-    # WhisperX diarization pipeline expects a HF token for speaker models
+
     if diarize:
         wx_device = os.getenv("WHISPER_DEVICE", "cpu")
         if wx_device == "mps":
             wx_device = "cpu"
-        # Load ASR model for word alignment
-        wx_asr_model = whisperx.load_model(model, device=wx_device, compute_type="float32")
-        # Initialize diarization pipeline (HF token should be set in env HF_TOKEN)
+        
         hf_token = os.getenv("HF_TOKEN", None)
         diarization_pipeline = DiarizationPipeline(use_auth_token=hf_token, device=wx_device)
-        # Run diarization: pass original audio numpy array
-        # and speaker count if provided and valid
+        
         diarize_args = {}
         if num_speakers is not None and num_speakers > 0:
             diarize_args["num_speakers"] = num_speakers
             diarize_args["min_speakers"] = num_speakers
             diarize_args["max_speakers"] = num_speakers
         
-        diarize_segments = diarization_pipeline(np_array, **diarize_args)
-        # Assign speaker labels back to transcription result
-        result = assign_word_speakers(diarize_segments, result)
+        diarize_segments_raw = diarization_pipeline(np_array, **diarize_args)
+        result_with_word_speakers = assign_word_speakers(diarize_segments_raw, result)
         
-        # Remap speaker labels to be 1-indexed
-        if "segments" in result:
-            for segment in result["segments"]:
-                if "speaker" in segment and segment["speaker"].startswith("SPEAKER_"):
-                    try:
-                        speaker_id_str = segment["speaker"].split("_")[1]
-                        speaker_id_int = int(speaker_id_str)
-                        new_speaker_id_int = speaker_id_int + 1
-                        segment["speaker"] = f"SPEAKER_{new_speaker_id_int:02d}"
-                    except (IndexError, ValueError):
-                        # If parsing fails, keep original label
-                        pass
+        if "segments" in result_with_word_speakers:
+            for segment in result_with_word_speakers["segments"]:
+                if "words" in segment and segment["words"]:
+                    for word_info in segment["words"]:
+                        if "speaker" in word_info and word_info["speaker"].startswith("SPEAKER_"):
+                            try:
+                                speaker_id_str = word_info["speaker"].split("_")[1]
+                                speaker_id_int = int(speaker_id_str)
+                                new_speaker_id_int = speaker_id_int + 1
+                                word_info["speaker"] = f"SPEAKER_{new_speaker_id_int:02d}"
+                            except (IndexError, ValueError):
+                                pass
+        
+        result["segments"] = _resegment_diarized_result(result_with_word_speakers, word_timestamps)
+            
     return result
 
 
@@ -135,8 +242,6 @@ def convert_audio(file):
     compatible with openai-whisper. Adapted from `load_audio` in `whisper/audio.py`.
     """
     try:
-        # This launches a subprocess to decode audio while down-mixing and resampling as necessary.
-        # Requires the ffmpeg CLI and `ffmpeg-python` package to be installed.
         out, _ = (
             ffmpeg.input("pipe:", threads=0)
             .output("-", format="s16le", acodec="pcm_s16le", ac=1, ar=16000)
@@ -162,18 +267,23 @@ def transcribe_text(
     np_array = convert_audio(bytes)
     whisper_instance = whisper.load_model(model)
     lang = None if not language or language.lower() == "string" else language
+
+    effective_word_timestamps_for_process = True if diarize else False
+
     result = whisper_instance.transcribe(
         audio=np_array,
         verbose=True,
         task=task,
         initial_prompt=initial_prompt,
+        word_timestamps=effective_word_timestamps_for_process,
         language=lang,
     )
+
     if diarize:
         wx_device = os.getenv("WHISPER_DEVICE", "cpu")
         if wx_device == "mps":
             wx_device = "cpu"
-        wx_asr_model = whisperx.load_model(model, device=wx_device, compute_type="float32")
+        
         hf_token = os.getenv("HF_TOKEN", None)
         diarization_pipeline = DiarizationPipeline(use_auth_token=hf_token, device=wx_device)
         
@@ -183,23 +293,24 @@ def transcribe_text(
             diarize_args["min_speakers"] = num_speakers
             diarize_args["max_speakers"] = num_speakers
             
-        diarize_segments = diarization_pipeline(np_array, **diarize_args)
-        result = assign_word_speakers(diarize_segments, result)
+        diarize_segments_raw = diarization_pipeline(np_array, **diarize_args)
+        result_with_word_speakers = assign_word_speakers(diarize_segments_raw, result)
 
-        # Remap speaker labels to be 1-indexed
-        if "segments" in result:
-            for segment in result["segments"]:
-                if "speaker" in segment and segment["speaker"].startswith("SPEAKER_"):
-                    try:
-                        speaker_id_str = segment["speaker"].split("_")[1]
-                        speaker_id_int = int(speaker_id_str)
-                        new_speaker_id_int = speaker_id_int + 1
-                        segment["speaker"] = f"SPEAKER_{new_speaker_id_int:02d}"
-                    except (IndexError, ValueError):
-                        # If parsing fails, keep original label
-                        pass
+        if "segments" in result_with_word_speakers:
+            for segment in result_with_word_speakers["segments"]:
+                if "words" in segment and segment["words"]:
+                    for word_info in segment["words"]:
+                        if "speaker" in word_info and word_info["speaker"].startswith("SPEAKER_"):
+                            try:
+                                speaker_id_str = word_info["speaker"].split("_")[1]
+                                speaker_id_int = int(speaker_id_str)
+                                new_speaker_id_int = speaker_id_int + 1
+                                word_info["speaker"] = f"SPEAKER_{new_speaker_id_int:02d}"
+                            except (IndexError, ValueError):
+                                pass
+        
+        result["segments"] = _resegment_diarized_result(result_with_word_speakers, False)
 
-    # helper to format timestamps as [HH:MM:SS]
     def fmt_ts(seconds: float) -> str:
         total_ms = int(seconds * 1000)
         td = timedelta(milliseconds=total_ms)
@@ -208,7 +319,6 @@ def transcribe_text(
         ss = td.seconds % 60
         return f"{hh:02d}:{mm:02d}:{ss:02d}"
 
-    # build plain-text lines with start/end, speaker, and text
     lines = []
     for seg in result["segments"]:
         start = fmt_ts(seg["start"])

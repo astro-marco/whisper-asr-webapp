@@ -15,4 +15,6 @@ export interface Segment {
   avg_logprob: number;
   compression_ratio: number;
   no_speech_prob: number;
+  speaker?: string;
+  speaker_confidence?: number;
 }
