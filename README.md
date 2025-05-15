@@ -17,6 +17,7 @@ docker run --rm -it -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/
 
 - Customize the model, language, and initial prompt
 - Enable per-word timestamps (visible in downloaded JSON output)
+- Speaker diarization to distinguish different voices in the transcript
 - Runs Whisper locally
 - Pre-packaged into a single Docker image
 - View timestamped transcripts in the app
@@ -26,27 +27,54 @@ docker run --rm -it -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/
 
 The frontend is built with Svelte and builds to static HTML, CSS, and JS.
 
-The backend is built with FastAPI. The main endpoint, `/transcribe`, pipes an uploaded file into ffmpeg, then into Whisper. Once transcription is complete, it's returned as a JSON payload.
+The backend is built with FastAPI. The main endpoint, `/transcribe`, pipes an uploaded file into ffmpeg, then into Whisper. For speaker diarization, WhisperX is also employed to assign speaker labels. Once transcription is complete, it's returned as a JSON payload.
 
 In a containerized environment, the static assets from the frontend build are served by the same FastAPI (Uvicorn) server that handles transcription.
 
 ## Running
 
-1. Pull and run the image with Docker.
-   - Run in an interactive terminal: `docker run --rm -it -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/fluxcapacitor2/whisper-asr-webapp:main`
-   - Run in the background: `docker run -d -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/fluxcapacitor2/whisper-asr-webapp:main`
-2. Visit http://localhost:8000 in a web browser
+The primary way to run the application is using Docker.
+
+1. Ensure Docker is running.
+2. Use the provided `run.sh` script from the project root:
+   ```sh
+   ./run.sh
+   ```
+   This script builds the Docker image (if it doesn't exist or if changes are detected) and starts the container. It also mounts a volume (`whisper_models`) to cache downloaded Whisper models.
+3. Visit http://localhost:8000 in a web browser.
+
+If you prefer more direct control, you can still use the standard Docker commands:
+
+- For an interactive terminal: `docker run --rm -it -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/fluxcapacitor2/whisper-asr-webapp:main` (or your locally built image name like `fluxcapacitor2/whisper-asr-webapp:local-dev`).
+- To run in the background: `docker run -d -p 8000:8000 -v whisper_models:/root/.cache/whisper ghcr.io/fluxcapacitor2/whisper-asr-webapp:main`.
 
 ## Development
 
-The easiest way to get started is by using Docker. You can use the premade `run.sh` shell script or the following commands in the root of the project:
+For development, you can use the provided shell scripts to streamline your workflow.
+
+The `run.sh` script offers a Docker-based approach. It builds the image (if needed, incorporating your local code changes) and runs the container, closely mirroring the production setup:
 
 ```sh
-docker build . -t fluxcapacitor2/whisper-asr-webapp:local-dev
-docker run -p 8000:8000 -v whisper_models:/root/.cache/whisper --rm -it fluxcapacitor2/whisper-asr-webapp:local-dev
+./run.sh
 ```
 
-This will build and run a Docker container that hosts both the frontend and backend on port 8000.
-Navigate to http://localhost:8000 in a web browser to start using the app.
+If you prefer a faster local iteration cycle, especially for backend changes, `run-local.sh` is helpful. It builds the frontend and starts the backend server using your local Python environment (ensure you've set up `backend/.venv` with `poetry install` first):
 
-Note: When you make any code changes, you will need to rebuild and restart the Docker container. However, due to caching, this should still be reasonably fast.
+```sh
+./run-local.sh
+```
+
+With this setup, backend Python changes will often auto-reload. For frontend-only modifications, `update-ui.sh` quickly rebuilds the UI assets:
+
+```sh
+./update-ui.sh
+```
+
+Whichever script you use to start it, the app will be available at http://localhost:8000.
+Note: When using `run.sh`, code changes require stopping the script and re-running it to rebuild the Docker image.
+With `run-local.sh`:
+
+- Backend Python changes typically auto-reload the server (due to Uvicorn's `--reload` flag).
+- Frontend changes require rebuilding the UI assets. You can achieve this by:
+  - Re-running `run-local.sh` (it rebuilds the UI before starting the server).
+  - Running `update-ui.sh` separately (if the server is already running, you'll then need to refresh your browser to see the UI changes).
