@@ -1,4 +1,18 @@
-.venv
-__pycache__
+# Ignore Python virtual environment
+.venv/
+
+# Ignore Node.js dependencies
+frontend/node_modules/
+
+# Ignore built static assets
+static/
+
+# Ignore Python cache
+backend/__pycache__/
+*.pyc
+
+# Ignore OS-specific files
 .DS_Store
+Thumbs.db
+
 .env
