@@ -34,15 +34,15 @@ export function getContent(
 ) {
   switch (format) {
     case "txt": {
-      // group consecutive segments by speaker
-      const groups: { speaker?: string; lines: string[] }[] = [];
-      let curr: { speaker?: string; lines: string[] } | null = null;
+      // group consecutive segments by speaker, preserving start time
+      const groups: { speaker?: string; lines: string[]; start: number }[] = [];
+      let curr: { speaker?: string; lines: string[]; start: number } | null = null;
 
       for (const seg of result.segments) {
         const txt = seg.text.trim();
         if (!curr || curr.speaker !== seg.speaker) {
           if (curr) groups.push(curr);
-          curr = { speaker: seg.speaker, lines: [txt] };
+          curr = { speaker: seg.speaker, lines: [txt], start: seg.start };
         } else {
           curr.lines.push(txt);
         }
@@ -50,10 +50,12 @@ export function getContent(
       if (curr) groups.push(curr);
 
       return groups
-        .map(
-          (g) =>
-            (g.speaker ? g.speaker + ": " : "") + g.lines.join(" ")
-        )
+        .map((g) => {
+          // slice off last two zeros of "mm:ss.xxx" → "mm:ss.x"
+          const time = formatTimestamp(g.start).slice(0, -2);
+          const prefix = g.speaker ? g.speaker + ": " : "";
+          return `${time} ${prefix}${g.lines.join(" ")}`;
+        })
         .join("\n");
     }
     case "vtt": {

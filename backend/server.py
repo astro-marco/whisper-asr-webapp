@@ -22,6 +22,9 @@ from whisperx import assign_word_speakers
 import numpy as np
 import requests
 from datetime import timedelta
+import tempfile
+import torch
+import time
 
 app = FastAPI()
 
@@ -77,7 +80,7 @@ def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested
     Re-segments a transcription result based on word-level speaker assignments.
     Ensures each segment in the output corresponds to a single speaker.
     Handles words with no speaker assignment by attempting to associate them with the current speaker segment.
-    Filters out very short speakerless segments.
+    Tags missing speakers as "NO_SPEAKER".
     """
     resegmented_list = []
     original_segments = result.get("segments", [])
@@ -85,6 +88,9 @@ def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested
 
     for segment in original_segments:
         if "words" not in segment or not segment["words"]:
+            # skip entirely empty segments (no words and no text)
+            if not segment.get("text", "").strip():
+                continue
             current_seg_copy = segment.copy()
             if "id" not in current_seg_copy:
                 current_seg_copy["id"] = new_segment_id
@@ -96,10 +102,8 @@ def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested
             current_seg_copy.setdefault("compression_ratio", segment.get("compression_ratio", 0.0))
             current_seg_copy.setdefault("no_speech_prob", segment.get("no_speech_prob", 0.0))
             
-            speaker_val = segment.get("speaker")
-            if speaker_val == "": # Normalize speaker if it's an empty string
-                speaker_val = None
-            current_seg_copy.setdefault("speaker", speaker_val)
+            speaker_val = segment.get("speaker") or "NO_SPEAKER"
+            current_seg_copy["speaker"] = speaker_val
             
             resegmented_list.append(current_seg_copy)
             continue
@@ -133,22 +137,20 @@ def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested
                 if current_sub_segment_word_details:
                     seg_text = "".join(w["word"] for w in current_sub_segment_word_details).strip()
                     if seg_text:
-                        is_speakerless = speaker_for_current_sub_segment is None
-                        # Filter out very short (<=2 chars) speakerless segments
-                        if not (is_speakerless and len(seg_text) <= 2):
-                            new_seg_data = {
-                                "id": new_segment_id, "seek": 0,
-                                "start": current_sub_segment_word_details[0]["start"],
-                                "end": current_sub_segment_word_details[-1]["end"],
-                                "text": seg_text,
-                                "speaker": speaker_for_current_sub_segment,
-                                "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
-                                "compression_ratio": 0.0, "no_speech_prob": 0.0,
-                            }
-                            if word_timestamps_requested:
-                                new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"]} for w in current_sub_segment_word_details]
-                            resegmented_list.append(new_seg_data)
-                            new_segment_id += 1
+                        chosen_speaker = speaker_for_current_sub_segment or "NO_SPEAKER"
+                        new_seg_data = {
+                            "id": new_segment_id, "seek": 0,
+                            "start": current_sub_segment_word_details[0]["start"],
+                            "end": current_sub_segment_word_details[-1]["end"],
+                            "text": seg_text,
+                            "speaker": chosen_speaker,
+                            "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
+                            "compression_ratio": 0.0, "no_speech_prob": 0.0,
+                        }
+                        if word_timestamps_requested:
+                            new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"] or "NO_SPEAKER"} for w in current_sub_segment_word_details]
+                        resegmented_list.append(new_seg_data)
+                        new_segment_id += 1
                 
                 current_sub_segment_word_details = [word_detail_to_add]
                 speaker_for_current_sub_segment = effective_speaker_for_this_word
@@ -156,22 +158,20 @@ def _resegment_diarized_result(result: Dict[str, Any], word_timestamps_requested
         if current_sub_segment_word_details: 
             seg_text = "".join(w["word"] for w in current_sub_segment_word_details).strip()
             if seg_text:
-                is_speakerless = speaker_for_current_sub_segment is None
-                # Filter out very short (<=2 chars) speakerless segments
-                if not (is_speakerless and len(seg_text) <= 2):
-                    new_seg_data = {
-                        "id": new_segment_id, "seek": 0,
-                        "start": current_sub_segment_word_details[0]["start"],
-                        "end": current_sub_segment_word_details[-1]["end"],
-                        "text": seg_text,
-                        "speaker": speaker_for_current_sub_segment,
-                        "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
-                        "compression_ratio": 0.0, "no_speech_prob": 0.0,
-                    }
-                    if word_timestamps_requested:
-                        new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"]} for w in current_sub_segment_word_details]
-                    resegmented_list.append(new_seg_data)
-                    new_segment_id += 1
+                chosen_speaker = speaker_for_current_sub_segment or "NO_SPEAKER"
+                new_seg_data = {
+                    "id": new_segment_id, "seek": 0,
+                    "start": current_sub_segment_word_details[0]["start"],
+                    "end": current_sub_segment_word_details[-1]["end"],
+                    "text": seg_text,
+                    "speaker": chosen_speaker,
+                    "tokens": [], "temperature": 0.0, "avg_logprob": 0.0,
+                    "compression_ratio": 0.0, "no_speech_prob": 0.0,
+                }
+                if word_timestamps_requested:
+                    new_seg_data["words"] = [{"word": w["word"], "start": w["start"], "end": w["end"], "speaker": w["speaker"] or "NO_SPEAKER"} for w in current_sub_segment_word_details]
+                resegmented_list.append(new_seg_data)
+                new_segment_id += 1
             
     return resegmented_list
 
@@ -188,7 +188,25 @@ def transcribe(
     num_speakers: Annotated[Optional[int], Form()] = None,
 ):
     bytes = file.file.read()
-    np_array = convert_audio(bytes)
+    # Save uploaded file to a temporary file for diarization
+    tmp_audio_path = None
+    if diarize:
+        # Preserve original extension for ffmpeg compatibility
+        suffix = Path(file.filename).suffix or ".wav"
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        tmp_file.write(bytes)
+        tmp_file.flush()
+        tmp_file.close()
+        tmp_audio_path = tmp_file.name
+    # --- DEBUG: determina input per Whisper ---
+    if tmp_audio_path:
+        # uso il file .wav temporaneo
+        audio_input = tmp_audio_path
+    else:
+        np_array = convert_audio(bytes)
+        # debug rapido: controlla che l'array non sia vuoto
+        print(f"[DEBUG] np_array shape={np_array.shape}, dtype={np_array.dtype}, min={np_array.min()}, max={np_array.max()}")
+        audio_input = np_array
     whisper_instance = whisper.load_model(model)
     lang = None if not language or language.lower() == "string" else language
 
@@ -196,14 +214,19 @@ def transcribe(
     if diarize:
         effective_word_timestamps_for_process = True
 
+    print("Starting transcription...")
+    start_trans_time = time.time()
     result = whisper_instance.transcribe(
-        audio=np_array,
+        audio=audio_input,
         verbose=True,
         task=task,
         initial_prompt=initial_prompt,
         word_timestamps=effective_word_timestamps_for_process,
         language=lang,
     )
+    end_trans_time = time.time()
+    print(f"Transcription completed in {end_trans_time - start_trans_time:.2f}s")
+    print(f"Transcript snippet: {result.get('text','')[:200]}")
 
     if diarize:
         wx_device = os.getenv("WHISPER_DEVICE", "cpu")
@@ -212,15 +235,19 @@ def transcribe(
         
         hf_token = os.getenv("HF_TOKEN", None)
         diarization_pipeline = DiarizationPipeline(use_auth_token=hf_token, device=wx_device)
-        
+        print("Starting diarization...")
+        start_diar_time = time.time()
         diarize_args = {}
         if num_speakers is not None and num_speakers > 0:
             diarize_args["num_speakers"] = num_speakers
             diarize_args["min_speakers"] = num_speakers
             diarize_args["max_speakers"] = num_speakers
         
-        diarize_segments_raw = diarization_pipeline(np_array, **diarize_args)
+        # Passa l'array NumPy direttamente alla pipeline di diarizzazione
+        diarize_segments_raw = diarization_pipeline(tmp_audio_path, **diarize_args)
         result_with_word_speakers = assign_word_speakers(diarize_segments_raw, result)
+        end_diar_time = time.time()
+        print(f"Diarization completed in {end_diar_time - start_diar_time:.2f}s")
         
         if "segments" in result_with_word_speakers:
             for segment in result_with_word_speakers["segments"]:
@@ -290,13 +317,13 @@ def transcribe_text(
         
         hf_token = os.getenv("HF_TOKEN", None)
         diarization_pipeline = DiarizationPipeline(use_auth_token=hf_token, device=wx_device)
-        
         diarize_args = {}
         if num_speakers is not None and num_speakers > 0:
             diarize_args["num_speakers"] = num_speakers
             diarize_args["min_speakers"] = num_speakers
             diarize_args["max_speakers"] = num_speakers
             
+        # Passa l'array NumPy direttamente alla pipeline di diarizzazione
         diarize_segments_raw = diarization_pipeline(np_array, **diarize_args)
         result_with_word_speakers = assign_word_speakers(diarize_segments_raw, result)
 

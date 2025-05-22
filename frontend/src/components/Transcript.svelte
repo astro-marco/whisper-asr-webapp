@@ -6,7 +6,6 @@
 
   export let result: WhisperResult;
   export let inputFileName: string;
-  export let duration: number;
 
   function formatTimestamp(n: number) {
     const totalSeconds = Math.round(n);
@@ -26,7 +25,8 @@
   $: processed = (() => {
     if (!result?.segments?.length) return [];
     const groups: ProcessedGroup[] = [];
-    let curr: { start: number; speaker?: string; lines: string[] } | null = null;
+    let curr: { start: number; speaker?: string; lines: string[] } | null =
+      null;
 
     for (const s of result.segments) {
       const txt = s.text.trim();
@@ -72,8 +72,7 @@
     <Button
       variant="flat"
       on:click={() =>
-        download(`${inputFileName}.${fileType}`, getContent(result, fileType))
-      }
+        download(`${inputFileName}.${fileType}`, getContent(result, fileType))}
     >
       Download
     </Button>
@@ -83,7 +82,9 @@
 <div class="space-y-3">
   {#each processed as g}
     <div class="segment-group-grid">
-      <span class="timestamp-cell font-medium text-gray-500 dark:text-gray-400 select-none">
+      <span
+        class="timestamp-cell font-medium text-gray-500 dark:text-gray-400 select-none"
+      >
         {formatTimestamp(g.startTime)}
       </span>
       <div>

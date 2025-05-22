@@ -65,7 +65,10 @@
       .then((json) => {
         result = json;
         debugJSON = JSON.stringify(json, null, 2);
-        console.log("Received result from backend:", JSON.stringify(result, null, 2)); // Add this line to inspect
+        console.log(
+          "Received result from backend:",
+          JSON.stringify(result, null, 2),
+        ); // Add this line to inspect
         loading = false;
         end = Date.now();
         lastInputFileName = fileName;
@@ -129,22 +132,22 @@
 
           <LanguageSelect bind:language english={model.includes(".en")} />
         </div>
-        
-          <div class="flex flex-col gap-2 w-full">
-            <label for="task" class="text-xs uppercase font-bold">
-              Translation
-            </label>
 
-            <select
-              name="language"
-              bind:value={task}
-              disabled={language === "english" || model === "turbo"}
-              class="dark:bg-gray-700 dark:text-white disabled:text-gray-400"
-            >
-              <option value="transcribe">Keep as-is</option>
-              <option value="translate">Translate to English</option>
-            </select>
-          </div>
+        <div class="flex flex-col gap-2 w-full">
+          <label for="task" class="text-xs uppercase font-bold">
+            Translation
+          </label>
+
+          <select
+            name="language"
+            bind:value={task}
+            disabled={language === "english" || model === "turbo"}
+            class="dark:bg-gray-700 dark:text-white disabled:text-gray-400"
+          >
+            <option value="transcribe">Keep as-is</option>
+            <option value="translate">Translate to English</option>
+          </select>
+        </div>
 
         <div class="flex flex-col gap-2 w-full">
           <p class="text-xs uppercase font-bold mb-0.5">
@@ -206,34 +209,36 @@
               bind:checked={diarize}
               class="h-4 w-4"
             />
-            <label for="diarize" class="text-sm">Enable speaker diarization</label>
+            <label for="diarize" class="text-sm"
+              >Enable speaker diarization</label
+            >
           </div>
         </div>
 
         {#if diarize}
-        <div class="flex flex-col gap-2 w-full">
-          <label for="numSpeakers" class="text-xs uppercase font-bold">
-            Number of Speakers
-            <Tooltip
-              tip="Optional. Specify the exact number of speakers. Leave blank or set to 0 for auto-detection."
-            >
-              <CircleQuestion
-                class="fill-gray-600 dark:fill-gray-400 w-4 h-4 ml-1 -mb-0.5"
-              />
-            </Tooltip>
-          </label>
-          <input
-            type="number"
-            id="numSpeakers"
-            bind:value={numSpeakers}
-            min="0"
-            placeholder="Auto-detect"
-            class="dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400 p-2 border rounded-md"
-            on:input={() => {
-              if (numSpeakers < 0) numSpeakers = 0;
-            }}
-          />
-        </div>
+          <div class="flex flex-col gap-2 w-full">
+            <label for="numSpeakers" class="text-xs uppercase font-bold">
+              Number of Speakers
+              <Tooltip
+                tip="Optional. Specify the exact number of speakers. Leave blank or set to 0 for auto-detection."
+              >
+                <CircleQuestion
+                  class="fill-gray-600 dark:fill-gray-400 w-4 h-4 ml-1 -mb-0.5"
+                />
+              </Tooltip>
+            </label>
+            <input
+              type="number"
+              id="numSpeakers"
+              bind:value={numSpeakers}
+              min="0"
+              placeholder="Auto-detect"
+              class="dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400 p-2 border rounded-md"
+              on:input={() => {
+                if (numSpeakers < 0) numSpeakers = 0;
+              }}
+            />
+          </div>
         {/if}
       </div>
 
@@ -255,26 +260,22 @@
         />
       </div>
       <div class="flex justify-end">
-        <Button variant="primary" {loading}
-          >{loading ? "Transcribing..." : "Transcribe"}</Button
-        >
+        <Button variant="primary" {loading}>
+          {loading ? "Transcribing..." : "Transcribe"}
+        </Button>
       </div>
-
     </form>
     <div bind:this={transcript}>
       {#if result}
-        <Transcript
-          {result}
-          duration={end - start}
-          inputFileName={lastInputFileName}
-        />
+        <Transcript {result} inputFileName={lastInputFileName} />
       {/if}
     </div>
 
     {#if debugJSON}
       <details class="mt-4 p-2 bg-gray-100 dark:bg-gray-800 rounded">
         <summary class="cursor-pointer font-medium">Mostra Debug JSON</summary>
-        <pre class="whitespace-pre-wrap overflow-auto max-h-64 text-xs">{debugJSON}</pre>
+        <pre
+          class="whitespace-pre-wrap overflow-auto max-h-64 text-xs">{debugJSON}</pre>
       </details>
     {/if}
   </main>
